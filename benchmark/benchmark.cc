@@ -1,5 +1,17 @@
 #include <inttypes.h>
 
+#include <cassert>
+#include <ctime>
+#include <cstring>
+#include <cstdlib>
+#include <cstdio>
+#include <cmath>
+#include <thread>  
+#include <chrono>
+#include <ostream>
+#include "parallel_hashmap/meminfo.h"
+#include <vector>
+
 #ifdef STL_UNORDERED
     #include <unordered_map>
     #define MAPNAME std::unordered_map
@@ -42,7 +54,7 @@
     #define MT_SUPPORT 2
     #if MT_SUPPORT == 1
         // create the parallel_flat_hash_map without internal mutexes, for when 
-        // we programatically ensure that each thread uses different internal submaps
+        // we programmatically ensure that each thread uses different internal submaps
         // --------------------------------------------------------------------------
         #define EXTRAARGS , NMSP::priv::hash_default_hash<K>, \
                             NMSP::priv::hash_default_eq<K>, \
@@ -59,7 +71,15 @@
         #define EXTRAARGS
     #endif
 
+#else
+// default benchmark
+#include "parallel_hashmap/phmap.h"
+#define MAPNAME phmap::flat_hash_map
+#define NMSP phmap
+#define EXTRAARGS
 #endif
+
+using std::vector;
 
 #define xstr(s) str(s)
 #define str(s) #s
@@ -71,19 +91,6 @@ using hash_t     = HashT<int64_t, int64_t>;
 using str_hash_t = HashT<const char *, int64_t>;
 
 const char *program_slug = xstr(MAPNAME); // "_4";
-
-#include <cassert>
-#include <ctime>
-#include <cstring>
-#include <cstdlib>
-#include <cstdio>
-#include <cmath>
-#include <thread>  
-#include <chrono>
-#include <ostream>
-#include "parallel_hashmap/meminfo.h"
-#include <vector>
-using std::vector;
 
 int64_t _abs(int64_t x) { return (x < 0) ? -x : x; }
 
@@ -399,7 +406,7 @@ int main(int argc, char ** argv)
 #endif
         else if(!strcmp(argv[2], "random"))
         {
-            fprintf(stderr, "size = %d\n", sizeof(hash));
+            fprintf(stderr, "size = %zu\n", sizeof(hash));
             timer = _fill_random2(num_keys, hash);
             //out("random", num_keys, timer);
             //fprintf(stderr, "inserted %llu\n", hash.size());
