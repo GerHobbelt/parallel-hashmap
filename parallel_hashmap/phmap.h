@@ -621,7 +621,7 @@ const typename T::key_type& GetKey(const typename T::key_type& key, char) {
 // container.
 // --------------------------------------------------------------------------
 template <class Container, typename Enabler = void>
-struct HashtableDebugAccess 
+struct HashtableDebugAccess
 {
     // Returns the number of probes required to find `key` in `c`.  The "number of
     // probes" is a concept that can vary by container.  Implementations should
@@ -3335,6 +3335,7 @@ public:
     //   flat_hash_set<std::string> s;
     //   // Uses "abc" directly without copying it into std::string.
     //   s.erase("abc");
+    //
     // --------------------------------------------------------------------
     template <class K = key_type>
     size_type erase(const key_arg<K>& key) {
@@ -3366,15 +3367,22 @@ public:
     //     ++it;
     //   }
     // }
+    //
+    // Do not use erase APIs taking iterators when accessing the map concurrently
     // --------------------------------------------------------------------
-    void _erase(iterator it) {
-        assert(it.inner_ != nullptr);
-        it.inner_->set_._erase(it.it_);
+    void _erase(iterator it, bool do_lock = true) {
+        Inner* inner = it.inner_;
+        assert(inner != nullptr);
+        auto&  set   = inner->set_;
+        // typename Lockable::UniqueLock m(*inner); // don't lock here 
+        
+        set._erase(it.it_);
     }
     void _erase(const_iterator cit) { _erase(cit.iter_); }
 
     // This overload is necessary because otherwise erase<K>(const K&) would be
     // a better match if non-const iterator is passed as an argument.
+    // Do not use erase APIs taking iterators when accessing the map concurrently
     // --------------------------------------------------------------------
     iterator erase(iterator it) { _erase(it++); return it; }
 
@@ -3387,6 +3395,7 @@ public:
 
     // Moves elements from `src` into `this`.
     // If the element already exists in `this`, it is left unmodified in `src`.
+    // Do not use erase APIs taking iterators when accessing the map concurrently
     // --------------------------------------------------------------------
     template <typename E = Eq>
     void merge(parallel_hash_set<N, RefSet, Mtx_, Policy, Hash, E, Alloc>& src) {  // NOLINT
@@ -4394,8 +4403,16 @@ namespace hashtable_debug_internal {
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
+
+template<typename, typename = void >
+struct has_member_type_raw_hash_set : std::false_type
+{};
+template<typename T>
+struct has_member_type_raw_hash_set<T, phmap::void_t<typename T::raw_hash_set>> : std::true_type
+{};
+
 template <typename Set>
-struct HashtableDebugAccess<Set, phmap::void_t<typename Set::raw_hash_set>> 
+struct HashtableDebugAccess<Set, typename std::enable_if<has_member_type_raw_hash_set<Set>::value>::type>
 {
     using Traits = typename Set::PolicyTraits;
     using Slot = typename Traits::slot_type;
@@ -4454,9 +4471,15 @@ struct HashtableDebugAccess<Set, phmap::void_t<typename Set::raw_hash_set>>
 };
 
 
-#if !defined(__clang__) // compilation error with clang++-12 -stdc++=20 (should fix )
+template<typename, typename = void >
+struct has_member_type_EmbeddedSet : std::false_type
+{};
+template<typename T>
+struct has_member_type_EmbeddedSet<T, phmap::void_t<typename T::EmbeddedSet>> : std::true_type
+{};
+
 template <typename Set>
-struct HashtableDebugAccess<Set, phmap::void_t<typename Set::EmbeddedSet>> {
+struct HashtableDebugAccess<Set, typename std::enable_if<has_member_type_EmbeddedSet<Set>::value>::type> {
     using Traits = typename Set::PolicyTraits;
     using Slot = typename Traits::slot_type;
     using EmbeddedSet = typename Set::EmbeddedSet;
@@ -4468,7 +4491,6 @@ struct HashtableDebugAccess<Set, phmap::void_t<typename Set::EmbeddedSet>> {
         return HashtableDebugAccess<EmbeddedSet>::GetNumProbes(inner_set, key);
     }
 };
-#endif
 
 }  // namespace hashtable_debug_internal
 }  // namespace priv
@@ -4979,9 +5001,6 @@ namespace phmap {
             return old_size - c.size();
         }
     } // priv
-} // phmap
-
-namespace std {
 
     // ======== erase_if for phmap set containers ==================================
     template <class T, class Hash, class Eq, class Alloc, class Pred> 
@@ -5025,7 +5044,7 @@ namespace std {
         return phmap::priv::erase_if(c, std::move(pred));
     }
 
-} // std
+} // phmap
 
 #ifdef _MSC_VER
      #pragma warning(pop)  
