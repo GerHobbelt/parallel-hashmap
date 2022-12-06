@@ -5,17 +5,19 @@ list (APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(DetectVersion)
 
 cmake_policy(SET CMP0048 NEW)                    ## set VERSION as documented by the project() command.
+cmake_policy(SET CMP0076 NEW)                    ## accept new policy
 set(CMAKE_CXX_STANDARD 11)                       ## compile with C++11 support
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(phmap VERSION ${DETECTED_PHMAP_VERSION} LANGUAGES CXX)
 
 set(PHMAP_DIR parallel_hashmap)
-set(PHMAP_HEADERS ${PHMAP_DIR}/phmap.h 
-                  ${PHMAP_DIR}/phmap_base.h 
-                  ${PHMAP_DIR}/phmap_bits.h 
-                  ${PHMAP_DIR}/phmap_utils.h 
-                  ${PHMAP_DIR}/phmap_config.h)
+set(PHMAP_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/${PHMAP_DIR}/phmap.h 
+                  ${CMAKE_CURRENT_SOURCE_DIR}/${PHMAP_DIR}/phmap_base.h 
+                  ${CMAKE_CURRENT_SOURCE_DIR}/${PHMAP_DIR}/phmap_bits.h 
+                  ${CMAKE_CURRENT_SOURCE_DIR}/${PHMAP_DIR}/phmap_utils.h 
+                  ${CMAKE_CURRENT_SOURCE_DIR}/${PHMAP_DIR}/phmap_config.h)
+
 set(CMAKE_SUPPRESS_REGENERATION true)            ## suppress ZERO_CHECK project
 
 include(GNUInstallDirs)
@@ -43,8 +45,8 @@ export(EXPORT ${PROJECT_NAME}-targets
        FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake")
 
 ## ------------------------- building tests and examples -------------
-option(PHMAP_BUILD_TESTS    "Whether or not to build the tests"    OFF)
-option(PHMAP_BUILD_EXAMPLES "Whether or not to build the examples" OFF)
+option(PHMAP_BUILD_TESTS    "Whether or not to build the tests"    ON)
+option(PHMAP_BUILD_EXAMPLES "Whether or not to build the examples" ON)
 
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
@@ -110,6 +112,9 @@ if (PHMAP_BUILD_TESTS)
                   COPTS "-DUNORDERED_MAP_CXX17" DEPS gmock_main)
 
     phmap_cc_test(NAME dump_load SRCS "tests/dump_load_test.cc"
+                  COPTS "-DUNORDERED_MAP_CXX17" DEPS gmock_main)
+
+    phmap_cc_test(NAME erase_if SRCS "tests/erase_if_test.cc"
                   COPTS "-DUNORDERED_MAP_CXX17" DEPS gmock_main)
 
     ## --------------- btree -----------------------------------------------
