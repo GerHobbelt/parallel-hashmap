@@ -3318,13 +3318,40 @@ public:
         }
     }
 
+#if __cplusplus >= 201703L
+    template <class ExecutionPolicy, class F>
+    void for_each(ExecutionPolicy&& policy, F&& fCallback) const {
+        std::for_each(
+            std::forward<ExecutionPolicy>(policy), sets_.begin(), sets_.end(),
+            [&](auto const& inner) {
+                typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+                std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
+            }
+        );
+    }
+#endif
+
     // this version allows to modify the values
-    void for_each_m(std::function<void (value_type&)> && fCallback) {
+    template <class F>
+    void for_each_m(F&& fCallback) {
         for (auto& inner : sets_) {
             typename Lockable::UniqueLock m(const_cast<Inner&>(inner));
             std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
         }
     }
+
+#if __cplusplus >= 201703L
+    template <class ExecutionPolicy, class F>
+    void for_each_m(ExecutionPolicy&& policy, F&& fCallback) {
+        std::for_each(
+            std::forward<ExecutionPolicy>(policy), sets_.begin(), sets_.end(),
+            [&](auto& inner) {
+                typename Lockable::UniqueLock m(const_cast<Inner&>(inner));
+                std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
+            }
+        );
+    }
+#endif
 
     // Extension API: support for heterogeneous keys.
     //
@@ -3370,7 +3397,7 @@ public:
     //
     // Do not use erase APIs taking iterators when accessing the map concurrently
     // --------------------------------------------------------------------
-    void _erase(iterator it, bool do_lock = true) {
+    void _erase(iterator it) {
         Inner* inner = it.inner_;
         assert(inner != nullptr);
         auto&  set   = inner->set_;
@@ -4309,28 +4336,26 @@ public:
 
 #if PHMAP_HAVE_STD_STRING_VIEW
 
-// support char16_t wchar_t ....
-template<class CharT> 
-struct StringHashT 
-{
-    using is_transparent = void;
-
-    size_t operator()(std::basic_string_view<CharT> v) const {
-        std::string_view bv{reinterpret_cast<const char*>(v.data()), v.size() * sizeof(CharT)};
-        return std::hash<std::string_view>()(bv);
-    }
-};
-
 // Supports heterogeneous lookup for basic_string<T>-like elements.
 template<class CharT> 
 struct StringHashEqT
 {
-    using Hash = StringHashT<CharT>;
+    struct Hash 
+    {
+        using is_transparent = void;
+        
+        size_t operator()(std::basic_string_view<CharT> v) const {
+            std::string_view bv{
+                reinterpret_cast<const char*>(v.data()), v.size() * sizeof(CharT)};
+            return std::hash<std::string_view>()(bv);
+        }
+    };
 
     struct Eq {
         using is_transparent = void;
 
-        bool operator()(std::basic_string_view<CharT> lhs, std::basic_string_view<CharT> rhs) const {
+        bool operator()(std::basic_string_view<CharT> lhs,
+                        std::basic_string_view<CharT> rhs) const {
             return lhs == rhs;
         }
     };
