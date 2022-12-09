@@ -19,12 +19,12 @@ public:
         phmap::BinaryOutputArchive ar_out (filename.c_str());
 
 #if 0
-		ar_out.saveBinary(&this->size(), sizeof(this->size()));
-		for (auto& [k, v] : *this)
-		{
-			ar_out.dump(k);
-			v.phmap_dump(ar_out);
-		}
+        ar_out.saveBinary(this->size());
+        for (auto& [k, v] : *this) 
+        {
+            ar_out.saveBinary(k);
+            ar_out.saveBinary(v);
+        }
 #else
 		this->phmap_dump(ar_out);
 #endif
@@ -35,8 +35,8 @@ public:
         phmap::BinaryInputArchive ar_in(filename.c_str());
 
 #if 0
-		size_t size;
-        ar_in.loadBinary(&size, sizeof(size));
+        size_t size;
+        ar_in.loadBinary(&size);
         this->reserve(size);
 
         while (size--)
@@ -45,7 +45,7 @@ public:
             Set v;
 
             ar_in.loadBinary(&k);
-            v.phmap_load(ar_in);
+            ar_in.loadBinary(&v);
 
             this->insert_or_assign(std::move(k), std::move(v));
         }
