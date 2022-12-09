@@ -1450,7 +1450,7 @@ public:
     template <class... Args, typename std::enable_if<
                                  !IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace(Args&&... args) {
-        typename std::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type
+        typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type
             raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
 
@@ -1461,7 +1461,7 @@ public:
 
     template <class... Args, typename std::enable_if<!IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace_with_hash(size_t hashval, Args&&... args) {
-        typename std::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
+        typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
 
         PolicyTraits::construct(&alloc_ref(), slot, std::forward<Args>(args)...);
@@ -2053,7 +2053,7 @@ private:
         //       mark target as FULL
         //       repeat procedure for current slot with moved from element (target)
         ConvertDeletedToEmptyAndFullToDeleted(ctrl_, capacity_);
-        typename std::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type
+        typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type
             raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
         for (size_t i = 0; i != capacity_; ++i) {
@@ -2217,10 +2217,13 @@ protected:
     void emplace_at(size_t i, Args&&... args) {
         PolicyTraits::construct(&alloc_ref(), slots_ + i,
                                 std::forward<Args>(args)...);
-
+        
+#ifdef PHMAP_CHECK_CONSTRUCTED_VALUE
+        // this check can be costly, so do it only when requested
         assert(PolicyTraits::apply(FindElement{*this}, *iterator_at(i)) ==
                iterator_at(i) &&
                "constructed value does not match the lookup key");
+#endif
     }
 
     iterator iterator_at(size_t i) { return {ctrl_ + i, slots_ + i}; }
@@ -3084,7 +3087,7 @@ public:
     template <class... Args, typename std::enable_if<
                                  !IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace_with_hash(size_t hashval, Args&&... args) {
-        typename std::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
+        typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
 
         PolicyTraits::construct(&alloc_ref(), slot, std::forward<Args>(args)...);
@@ -3157,7 +3160,7 @@ public:
     template <class... Args, typename std::enable_if<
                                  !IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace(Args&&... args) {
-        typename std::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
+        typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
         size_t hashval  = this->hash(PolicyTraits::key(slot));
 
@@ -4697,7 +4700,7 @@ public:
 //   hashing function and equality operator.
 // * Contains a `capacity()` member function indicating the number of element
 //   slots (open, deleted, and empty) within the hash set.
-// * Returns `void` from the `erase(iterator)` overload.
+// * Returns `void` from the `_erase(iterator)` overload.
 // -----------------------------------------------------------------------------
 template <class T, class Hash, class Eq, class Alloc> // default values in phmap_fwd_decl.h
 class node_hash_set
@@ -4762,7 +4765,7 @@ public:
 //   hashing function and equality operator.
 // * Contains a `capacity()` member function indicating the number of element
 //   slots (open, deleted, and empty) within the hash map.
-// * Returns `void` from the `erase(iterator)` overload.
+// * Returns `void` from the `_erase(iterator)` overload.
 // -----------------------------------------------------------------------------
 template <class Key, class Value, class Hash, class Eq, class Alloc>  // default values in phmap_fwd_decl.h
 class node_hash_map
