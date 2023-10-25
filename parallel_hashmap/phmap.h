@@ -1190,10 +1190,10 @@ public:
         size_(phmap::exchange(that.size_, 0)),
         capacity_(phmap::exchange(that.capacity_, 0)),
         infoz_(phmap::exchange(that.infoz_, HashtablezInfoHandle())),
-    // Hash, equality and allocator are copied instead of moved because
-    // `that` must be left valid. If Hash is std::function<Key>, moving it
-    // would create a nullptr functor that cannot be called.
-        settings_(that.settings_) {
+        // Hash, equality and allocator are copied instead of moved because
+        // `that` must be left valid. If Hash is std::function<Key>, moving it
+        // would create a nullptr functor that cannot be called.
+        settings_(std::move(that.settings_)) {
         // growth_left was copied above, reset the one from `that`.
         that.growth_left() = 0;
     }
