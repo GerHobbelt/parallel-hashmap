@@ -92,7 +92,9 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
 endif()
 
-include_directories(${PROJECT_SOURCE_DIR})
+if (PHMAP_BUILD_TESTS OR PHMAP_BUILD_EXAMPLES)
+    include_directories(${PROJECT_SOURCE_DIR})
+endif()
 
 if (PHMAP_BUILD_TESTS)
 
@@ -198,6 +200,7 @@ if (PHMAP_BUILD_EXAMPLES)
     add_executable(ex_hash_bench examples/hash_bench.cc phmap.natvis)
     add_executable(ex_matt examples/matt.cc phmap.natvis)
     add_executable(ex_mt_word_counter examples/mt_word_counter.cc phmap.natvis)
+    add_executable(ex_p_bench examples/p_bench.cc phmap.natvis)
 
     target_link_libraries(ex_knucleotide Threads::Threads)
     target_link_libraries(ex_bench Threads::Threads)
