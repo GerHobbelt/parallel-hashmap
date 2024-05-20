@@ -1448,8 +1448,7 @@ public:
     // This overload kicks in if we cannot deduce the key from args. It constructs
     // value_type unconditionally and then either moves it into the table or
     // destroys.
-    template <class... Args, typename std::enable_if<
-                                 !IsDecomposable<Args...>::value, int>::type = 0>
+    template <class... Args, typename std::enable_if<!IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace(Args&&... args) {
         typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type
             raw;
@@ -2214,11 +2213,10 @@ protected:
         return (size_t)-1;
     }
 
-
     template <class K>
     std::pair<size_t, bool> find_or_prepare_insert(const K& key, size_t hashval) {
         size_t offset = _find_key(key, hashval);
-        if (offset ==  (size_t)-1)
+        if (offset == (size_t)-1)
             return {prepare_insert(hashval), true};
         return {offset, false};
     }
@@ -2581,7 +2579,10 @@ public:
     using key_arg         = typename KeyArgImpl::template type<K, key_type>;
 
 protected:
-    using Lockable = phmap::LockableImpl<Mtx_>;
+    using Lockable      = phmap::LockableImpl<Mtx_>;
+    using UniqueLock    = typename Lockable::UniqueLock;
+    using SharedLock    = typename Lockable::SharedLock;
+    using ReadWriteLock = typename Lockable::ReadWriteLock;
     
 
     // --------------------------------------------------------------------
@@ -2633,9 +2634,7 @@ private:
     // --------------------------------------------------------------------
     template <class T>
     using RequiresInsertable = typename std::enable_if<
-        phmap::disjunction<std::is_convertible<T, init_type>,
-                          SameAsElementReference<T>>::value,
-        int>::type;
+        phmap::disjunction<std::is_convertible<T, init_type>, SameAsElementReference<T>>::value, int>::type;
 
     // RequiresNotInit is a workaround for gcc prior to 7.1.
     // See https://godbolt.org/g/Y4xsUh.
@@ -2962,7 +2961,7 @@ public:
     PHMAP_ATTRIBUTE_REINITIALIZES void clear() {
         for (auto& inner : sets_)
         {
-            typename Lockable::UniqueLock m(inner);
+            UniqueLock m(inner);
             inner.set_.clear();
         }
     }
@@ -2971,7 +2970,7 @@ public:
     // ----------------------------------------
     void clear(std::size_t submap_index) {
         Inner& inner = sets_[submap_index];
-        typename Lockable::UniqueLock m(inner);
+        UniqueLock m(inner);
         inner.set_.clear();
     }
 
@@ -3064,11 +3063,11 @@ public:
         Inner& inner   = sets_[subidx(hashval)];
         auto&  set     = inner.set_;
 
-        typename Lockable::UniqueLock m(inner);
+        UniqueLock m(inner);
         auto   res  = set.insert(std::move(node), hashval);
         return { make_iterator(&inner, res.position),
-                res.inserted,
-                res.inserted ? node_type() : std::move(res.node) };
+                 res.inserted,
+                 res.inserted ? node_type() : std::move(res.node) };
     }
 
     iterator insert(const_iterator, node_type&& node) {
@@ -3088,15 +3087,6 @@ public:
     // ----------------------------------
     // same as emplace, but hashval is provided
     // --------------------------------------------------------------------
-    template <class K, class... Args>
-    std::pair<iterator, bool> emplace_decomposable_with_hash(const K& key, size_t hashval, Args&&... args)
-    {
-        Inner& inner   = sets_[subidx(hashval)];
-        auto&  set     = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        return make_rv(&inner, set.emplace_decomposable(key, hashval, std::forward<Args>(args)...));
-    }
-
     struct EmplaceDecomposableHashval 
     {
         template <class K, class... Args>
@@ -3117,8 +3107,7 @@ public:
     //   // Creates no std::string copies and makes no heap allocations.
     //   m.emplace("abc", "xyz");
     // --------------------------------------------------------------------
-    template <class... Args, typename std::enable_if<
-                                 IsDecomposable<Args...>::value, int>::type = 0>
+    template <class... Args, typename std::enable_if<IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace_with_hash(size_t hashval, Args&&... args) {
         return PolicyTraits::apply(EmplaceDecomposableHashval{*this, hashval},
                                    std::forward<Args>(args)...);
@@ -3128,8 +3117,7 @@ public:
     // value_type unconditionally and then either moves it into the table or
     // destroys.
     // --------------------------------------------------------------------
-    template <class... Args, typename std::enable_if<
-                                 !IsDecomposable<Args...>::value, int>::type = 0>
+    template <class... Args, typename std::enable_if<!IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace_with_hash(size_t hashval, Args&&... args) {
         typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
@@ -3138,9 +3126,8 @@ public:
         const auto& elem = PolicyTraits::element(slot);
         Inner& inner    = sets_[subidx(hashval)];
         auto&  set      = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        typename EmbeddedSet::template InsertSlotWithHash<true> f {
-            inner, std::move(*slot), hashval};
+        UniqueLock m(inner);
+        typename EmbeddedSet::template InsertSlotWithHash<true> f { inner, std::move(*slot), hashval };
         return make_rv(PolicyTraits::apply(f, elem));
     }
 
@@ -3149,26 +3136,36 @@ public:
         return emplace_with_hash(hashval, std::forward<Args>(args)...).first;
     }
 
-    template <class K = key_type, class F>
-    iterator lazy_emplace_with_hash(const key_arg<K>& key, size_t hashval, F&& f) {
-        Inner& inner = sets_[subidx(hashval)];
-        auto&  set   = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        return make_iterator(&inner, set.lazy_emplace_with_hash(key, hashval, std::forward<F>(f)));
-    }
-
     // --------------------------------------------------------------------
     // end of phmap expension
     // --------------------------------------------------------------------
 
     template <class K, class... Args>
-    std::pair<iterator, bool> emplace_decomposable(const K& key, Args&&... args)
+    std::pair<iterator, bool> emplace_decomposable_with_hash(const K& key, size_t hashval, Args&&... args)
     {
-        size_t hashval = this->hash(key);
         Inner& inner   = sets_[subidx(hashval)];
         auto&  set     = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        return make_rv(&inner, set.emplace_decomposable(key, hashval, std::forward<Args>(args)...));
+        ReadWriteLock m(inner);
+        
+        size_t offset = set._find_key(key, hashval);
+        if (offset == (size_t)-1 && m.switch_to_unique()) {
+            // we did an unlock/lock, and another thread could have inserted the same key, so we need to
+            // do a find() again.
+            offset = set._find_key(key, hashval);
+        }
+        if (offset == (size_t)-1) {
+            offset = set.prepare_insert(hashval);
+            set.emplace_at(offset, std::forward<Args>(args)...);
+            set.set_ctrl(offset, H2(hashval));
+            return make_rv(&inner, {set.iterator_at(offset), true});
+        }
+        return make_rv(&inner, {set.iterator_at(offset), false});
+    }
+
+    template <class K, class... Args>
+    std::pair<iterator, bool> emplace_decomposable(const K& key, Args&&... args)
+    {
+        return emplace_decomposable_with_hash(key, this->hash(key), std::forward<Args>(args)...);
     }
 
     struct EmplaceDecomposable 
@@ -3190,19 +3187,16 @@ public:
     //   // Creates no std::string copies and makes no heap allocations.
     //   m.emplace("abc", "xyz");
     // --------------------------------------------------------------------
-    template <class... Args, typename std::enable_if<
-                                 IsDecomposable<Args...>::value, int>::type = 0>
+    template <class... Args, typename std::enable_if<IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace(Args&&... args) {
-        return PolicyTraits::apply(EmplaceDecomposable{*this},
-                                   std::forward<Args>(args)...);
+        return PolicyTraits::apply(EmplaceDecomposable{*this}, std::forward<Args>(args)...);
     }
 
     // This overload kicks in if we cannot deduce the key from args. It constructs
     // value_type unconditionally and then either moves it into the table or
     // destroys.
     // --------------------------------------------------------------------
-    template <class... Args, typename std::enable_if<
-                                 !IsDecomposable<Args...>::value, int>::type = 0>
+    template <class... Args, typename std::enable_if<!IsDecomposable<Args...>::value, int>::type = 0>
     std::pair<iterator, bool> emplace(Args&&... args) {
         typename phmap::aligned_storage<sizeof(slot_type), alignof(slot_type)>::type raw;
         slot_type* slot = reinterpret_cast<slot_type*>(&raw);
@@ -3210,11 +3204,10 @@ public:
 
         PolicyTraits::construct(&alloc_ref(), slot, std::forward<Args>(args)...);
         const auto& elem = PolicyTraits::element(slot);
-        Inner& inner    = sets_[subidx(hashval)];
-        auto&  set      = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        typename EmbeddedSet::template InsertSlotWithHash<true> f {
-            inner, std::move(*slot), hashval};
+        Inner& inner     = sets_[subidx(hashval)];
+        auto&  set       = inner.set_;
+        UniqueLock m(inner);
+        typename EmbeddedSet::template InsertSlotWithHash<true> f { inner, std::move(*slot), hashval };
         return make_rv(PolicyTraits::apply(f, elem));
     }
 
@@ -3239,12 +3232,27 @@ public:
     // lazy_emplace
     // ------------
     template <class K = key_type, class F>
-    iterator lazy_emplace(const key_arg<K>& key, F&& f) {
-        auto hashval = this->hash(key);
+    iterator lazy_emplace_with_hash(const key_arg<K>& key, size_t hashval, F&& f) {
         Inner& inner = sets_[subidx(hashval)];
         auto&  set   = inner.set_;
-        typename Lockable::UniqueLock m(inner);
-        return make_iterator(&inner, set.lazy_emplace_with_hash(key, hashval, std::forward<F>(f)));
+        ReadWriteLock m(inner);
+        size_t offset = set._find_key(key, hashval);
+        if (offset == (size_t)-1 && m.switch_to_unique()) {
+            // we did an unlock/lock, and another thread could have inserted the same key, so we need to
+            // do a find() again.
+            offset = set._find_key(key, hashval);
+        }
+        if (offset == (size_t)-1) {
+            offset = set.prepare_insert(hashval);
+            set.lazy_emplace_at(offset, std::forward<F>(f));
+            set.set_ctrl(offset, H2(hashval));
+        }
+        return iterator_at(offset);
+    }
+
+    template <class K = key_type, class F>
+    iterator lazy_emplace(const key_arg<K>& key, F&& f) {
+        return lazy_emplace_with_hash(key, this->hash(key), std::forward<F>(f));
     }
     
     // emplace_single
@@ -3253,14 +3261,13 @@ public:
     void emplace_single_with_hash(const key_arg<K>& key, size_t hashval, F&& f) {
         Inner& inner = sets_[subidx(hashval)];
         auto&  set   = inner.set_;
-        typename Lockable::UniqueLock m(inner);
+        UniqueLock m(inner);
         set.emplace_single_with_hash(key, hashval, std::forward<F>(f));
     }
 
     template <class K = key_type, class F>
     void emplace_single(const key_arg<K>& key, F&& f) {
-        auto hashval = this->hash(key);
-        emplace_single_with_hash<K, F>(key, hashval, std::forward<F>(f));
+        emplace_single_with_hash<K, F>(key, this->hash(key), std::forward<F>(f));
     }
 
     // if set contains key, lambda is called with the value_type (under read lock protection),
@@ -3269,7 +3276,7 @@ public:
     template <class K = key_type, class F>
     bool if_contains(const key_arg<K>& key, F&& f) const {
         return const_cast<parallel_hash_set*>(this)->template 
-            modify_if_impl<K, F, typename Lockable::SharedLock>(key, std::forward<F>(f));
+            modify_if_impl<K, F, SharedLock>(key, std::forward<F>(f));
     }
 
     // if set contains key, lambda is called with the value_type  without read lock protection,
@@ -3287,7 +3294,7 @@ public:
     // ----------------------------------------------------------------------------------------------------
     template <class K = key_type, class F>
     bool modify_if(const key_arg<K>& key, F&& f) {
-        return modify_if_impl<K, F, typename Lockable::UniqueLock>(key, std::forward<F>(f));
+        return modify_if_impl<K, F, UniqueLock>(key, std::forward<F>(f));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -3311,7 +3318,7 @@ public:
     // ----------------------------------------------------------------------------------------------------
     template <class K = key_type, class F>
     bool erase_if(const key_arg<K>& key, F&& f) {
-        return erase_if_impl<K, F, typename Lockable::UniqueLock>(key, std::forward<F>(f));
+        return erase_if_impl<K, F, ReadWriteLock>(key, std::forward<F>(f));
     }
 
     template <class K = key_type, class F, class L>
@@ -3324,7 +3331,14 @@ public:
         auto& set = inner.set_;
         L m(inner);
         auto it = set.find(key, hashval);
-        if (it == set.end()) return false;
+        if (it == set.end())
+            return false;
+        if (m.switch_to_unique()) {
+            // we did an unlock/lock, need to call `find()` again
+            it = set.find(key, hashval);
+            if (it == set.end())
+                return false;
+        }
         if (std::forward<F>(f)(const_cast<value_type &>(*it)))
         {
             set._erase(it);
@@ -3342,15 +3356,17 @@ public:
     template <class K = key_type, class FExists, class FEmplace>
     bool lazy_emplace_l(const key_arg<K>& key, FExists&& fExists, FEmplace&& fEmplace) {
         size_t hashval = this->hash(key);
-        typename Lockable::ReadWriteLock m;
+        ReadWriteLock m;
         auto res = this->find_or_prepare_insert_with_hash(hashval, key, m);
         Inner* inner = std::get<0>(res);
         if (std::get<2>(res)) {
+            // key not found. call fEmplace lambda which should invoke passed constructor
             inner->set_.lazy_emplace_at(std::get<1>(res), std::forward<FEmplace>(fEmplace));
             inner->set_.set_ctrl(std::get<1>(res), H2(hashval));
         } else {
+            // key found. Call fExists lambda. In case of the set, non "key" part of value_type can be changed
             auto it = this->iterator_at(inner, inner->set_.iterator_at(std::get<1>(res)));
-            std::forward<FExists>(fExists)(const_cast<value_type &>(*it)); // in case of the set, non "key" part of value_type can be changed
+            std::forward<FExists>(fExists)(const_cast<value_type &>(*it)); 
         }
         return std::get<2>(res);
     }
@@ -3365,7 +3381,7 @@ public:
     template <class F>
     void for_each(F&& fCallback) const {
         for (auto const& inner : sets_) {
-            typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+            SharedLock m(const_cast<Inner&>(inner));
             std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
         }
     }
@@ -3374,7 +3390,7 @@ public:
     template <class F>
     void for_each_m(F&& fCallback) {
         for (auto& inner : sets_) {
-            typename Lockable::UniqueLock m(inner);
+            UniqueLock m(inner);
             std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
         }
     }
@@ -3385,7 +3401,7 @@ public:
         std::for_each(
             std::forward<ExecutionPolicy>(policy), sets_.begin(), sets_.end(),
             [&](auto const& inner) {
-                typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+                SharedLock m(const_cast<Inner&>(inner));
                 std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
             }
         );
@@ -3396,7 +3412,7 @@ public:
         std::for_each(
             std::forward<ExecutionPolicy>(policy), sets_.begin(), sets_.end(),
             [&](auto& inner) {
-                typename Lockable::UniqueLock m(inner);
+                UniqueLock m(inner);
                 std::for_each(inner.set_.begin(), inner.set_.end(), fCallback);
             }
         );
@@ -3412,7 +3428,7 @@ public:
     void with_submap(size_t idx, F&& fCallback) const {
         const Inner& inner     = sets_[idx];
         const auto&  set = inner.set_;
-        typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+        SharedLock m(const_cast<Inner&>(inner));
         fCallback(set);
     }
 
@@ -3420,7 +3436,7 @@ public:
     void with_submap_m(size_t idx, F&& fCallback) {
         Inner& inner   = sets_[idx];
         auto&  set     = inner.set_;
-        typename Lockable::UniqueLock m(inner);
+        UniqueLock m(inner);
         fCallback(set);
     }
 
@@ -3477,7 +3493,7 @@ public:
         Inner* inner = it.inner_;
         assert(inner != nullptr);
         auto&  set   = inner->set_;
-        // typename Lockable::UniqueLock m(*inner); // don't lock here 
+        // UniqueLock m(*inner); // don't lock here 
         
         set._erase(it.it_);
     }
@@ -3551,7 +3567,7 @@ public:
         size_t nn = n / num_tables;
         for (auto& inner : sets_)
         {
-            typename Lockable::UniqueLock m(inner);
+            UniqueLock m(inner);
             inner.set_.rehash(nn);
         }
     }
@@ -3587,7 +3603,7 @@ public:
     void prefetch_hash(size_t hashval) const {
         const Inner& inner = sets_[subidx(hashval)];
         const auto&  set   = inner.set_;
-        typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+        SharedLock m(const_cast<Inner&>(inner));
         set.prefetch_hash(hashval);
     }
 
@@ -3606,7 +3622,7 @@ public:
     // --------------------------------------------------------------------
     template <class K = key_type>
     iterator find(const key_arg<K>& key, size_t hashval) {
-        typename Lockable::SharedLock m;
+        SharedLock m;
         return find(key, hashval, m);
     }
 
@@ -3654,7 +3670,7 @@ public:
         size_t sz = 0;
         for (const auto& inner : sets_)
         {
-            typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+            SharedLock m(const_cast<Inner&>(inner));
             sz += inner.set_.bucket_count();
         }
         return sz; 
@@ -3750,7 +3766,7 @@ private:
     void drop_deletes_without_resize() PHMAP_ATTRIBUTE_NOINLINE {
         for (auto& inner : sets_)
         {
-            typename Lockable::UniqueLock m(inner);
+            UniqueLock m(inner);
             inner.set_.drop_deletes_without_resize();
         }
     }
@@ -3759,7 +3775,7 @@ private:
         size_t hashval = PolicyTraits::apply(HashElement{hash_ref()}, elem);
         Inner& inner   = sets_[subidx(hashval)];
         auto&  set     = inner.set_;
-        typename Lockable::SharedLock m(const_cast<Inner&>(inner));
+        SharedLock m(const_cast<Inner&>(inner));
         return set.has_element(elem, hashval);
     }
 
@@ -3780,7 +3796,7 @@ private:
     }
 
 protected:
-    template <class K = key_type, class L = typename Lockable::SharedLock>
+    template <class K = key_type, class L = SharedLock>
     pointer find_ptr(const key_arg<K>& key, size_t hashval, L& mutexlock)
     {
         Inner& inner = sets_[subidx(hashval)];
@@ -3789,7 +3805,7 @@ protected:
         return set.find_ptr(key, hashval);
     }
 
-    template <class K = key_type, class L = typename Lockable::SharedLock>
+    template <class K = key_type, class L = SharedLock>
     iterator find(const key_arg<K>& key, size_t hashval, L& mutexlock) {
         Inner& inner = sets_[subidx(hashval)];
         auto& set = inner.set_;
@@ -3799,13 +3815,17 @@ protected:
 
     template <class K>
     std::tuple<Inner*, size_t, bool> 
-    find_or_prepare_insert_with_hash(size_t hashval, const K& key, typename Lockable::ReadWriteLock &mutexlock) {
+    find_or_prepare_insert_with_hash(size_t hashval, const K& key, ReadWriteLock &mutexlock) {
         Inner& inner = sets_[subidx(hashval)];
         auto&  set   = inner.set_;
-        mutexlock    = std::move(typename Lockable::ReadWriteLock(inner));
+        mutexlock    = std::move(ReadWriteLock(inner));
         size_t offset = set._find_key(key, hashval);
+        if (offset == (size_t)-1 && mutexlock.switch_to_unique()) {
+            // we did an unlock/lock, and another thread could have inserted the same key, so we need to
+            // do a find() again.
+            offset = set._find_key(key, hashval);
+        }
         if (offset == (size_t)-1) {
-            mutexlock.switch_to_unique();
             offset = set.prepare_insert(hashval);
             return std::make_tuple(&inner, offset, true);
         }
@@ -3814,7 +3834,7 @@ protected:
 
     template <class K>
     std::tuple<Inner*, size_t, bool> 
-    find_or_prepare_insert(const K& key, typename Lockable::ReadWriteLock &mutexlock) {
+    find_or_prepare_insert(const K& key, ReadWriteLock &mutexlock) {
         return find_or_prepare_insert_with_hash<K>(this->hash(key), key, mutexlock);
     }
 
@@ -3882,7 +3902,10 @@ class parallel_hash_map : public parallel_hash_set<N, RefSet, Mtx_, Policy, Hash
         KeyArg<IsTransparent<Eq>::value && IsTransparent<Hash>::value>;
 
     using Base = typename parallel_hash_map::parallel_hash_set;
-    using Lockable = phmap::LockableImpl<Mtx_>;
+    using Lockable      = phmap::LockableImpl<Mtx_>;
+    using UniqueLock    = typename Lockable::UniqueLock;
+    using SharedLock    = typename Lockable::SharedLock;
+    using ReadWriteLock = typename Lockable::ReadWriteLock;
 
 public:
     using key_type    = typename Policy::key_type;
@@ -4033,7 +4056,7 @@ public:
     template <class K = key_type, class F, class... Args>
     bool try_emplace_l(K&& k, F&& f, Args&&... args) {
         size_t hashval = this->hash(k);
-        typename Lockable::UniqueLock m;
+        ReadWriteLock m;
         auto res = this->find_or_prepare_insert_with_hash(hashval, k, m);
         typename Base::Inner *inner = std::get<0>(res);
         if (std::get<2>(res)) {
@@ -4043,7 +4066,8 @@ public:
             inner->set_.set_ctrl(std::get<1>(res), H2(hashval));
         } else {
             auto it = this->iterator_at(inner, inner->set_.iterator_at(std::get<1>(res)));
-            std::forward<F>(f)(const_cast<value_type &>(*it)); // in case of the set, non "key" part of value_type can be changed
+            // call lambda. in case of the set, non "key" part of value_type can be changed
+            std::forward<F>(f)(const_cast<value_type &>(*it));
         }
         return std::get<2>(res);
     }
@@ -4053,7 +4077,7 @@ public:
     template <class K = key_type, class... Args>
     std::pair<typename parallel_hash_map::parallel_hash_set::pointer, bool> try_emplace_p(K&& k, Args&&... args) {
         size_t hashval = this->hash(k);
-        typename Lockable::UniqueLock m;
+        ReadWriteLock m;
         auto res = this->find_or_prepare_insert_with_hash(hashval, k, m);
         typename Base::Inner *inner = std::get<0>(res);
         if (std::get<2>(res)) {
@@ -4083,7 +4107,7 @@ private:
     template <class K, class V>
     std::pair<iterator, bool> insert_or_assign_impl(K&& k, V&& v) {
         size_t hashval = this->hash(k);
-        typename Lockable::ReadWriteLock m;
+        ReadWriteLock m;
         auto res = this->find_or_prepare_insert_with_hash(hashval, k, m);
         typename Base::Inner *inner = std::get<0>(res);
         if (std::get<2>(res)) {
@@ -4103,7 +4127,7 @@ private:
 
     template <class K = key_type, class... Args>
     std::pair<iterator, bool> try_emplace_impl_with_hash(size_t hashval, K&& k, Args&&... args) {
-        typename Lockable::ReadWriteLock m;
+        ReadWriteLock m;
         auto res = this->find_or_prepare_insert_with_hash(hashval, k, m);
         typename Base::Inner *inner = std::get<0>(res);
         if (std::get<2>(res)) {

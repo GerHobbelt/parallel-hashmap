@@ -4629,13 +4629,13 @@ public:
         template<class T> explicit DoNothing(T&&) {}
         DoNothing& operator=(const DoNothing&) { return *this; }
         DoNothing& operator=(DoNothing&&) noexcept { return *this; }
-        void swap(DoNothing &) {}
+        void swap(DoNothing &)  noexcept {}
         bool owns_lock() const noexcept { return true; }
         void lock() {}
         void unlock() {}
         void lock_shared() {}
         void unlock_shared() {}
-        void switch_to_unique() {}
+        bool switch_to_unique() { return false; }
     };
 
     // ----------------------------------------------------
@@ -4711,7 +4711,7 @@ public:
 
         mutex_type *mutex() const noexcept { return m_; }
         
-        void switch_to_unique() {}
+        bool switch_to_unique() { return false; }
 
     private:
         mutex_type *m_;
@@ -4791,7 +4791,7 @@ public:
 
         mutex_type *mutex() const noexcept { return m_; }
 
-        void switch_to_unique() {}
+        bool switch_to_unique() { return false; }
 
     private:
         mutex_type *m_;
@@ -4873,12 +4873,12 @@ public:
 
         mutex_type *mutex() const noexcept { return m_; }
 
-        void switch_to_unique() {
+        bool switch_to_unique() {
             assert(locked_shared_);
             unlock_shared();
             lock();
+            return true;
         }
-        
 
     private:
         mutex_type *m_;
