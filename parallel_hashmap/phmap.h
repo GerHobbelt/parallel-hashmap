@@ -206,19 +206,23 @@ constexpr bool IsNoThrowSwappable(std::false_type /* is_swappable */) {
 // --------------------------------------------------------------------------
 template <typename T>
 uint32_t TrailingZeros(T x) {
+    uint32_t res;
     PHMAP_IF_CONSTEXPR(sizeof(T) == 8)
-        return base_internal::CountTrailingZerosNonZero64(static_cast<uint64_t>(x));
+        res = base_internal::CountTrailingZerosNonZero64(static_cast<uint64_t>(x));
     else
-        return base_internal::CountTrailingZerosNonZero32(static_cast<uint32_t>(x));
+        res = base_internal::CountTrailingZerosNonZero32(static_cast<uint32_t>(x));
+    return res;
 }
 
 // --------------------------------------------------------------------------
 template <typename T>
 uint32_t LeadingZeros(T x) {
+    uint32_t res;
     PHMAP_IF_CONSTEXPR(sizeof(T) == 8)
-        return base_internal::CountLeadingZeros64(static_cast<uint64_t>(x));
+        res = base_internal::CountLeadingZeros64(static_cast<uint64_t>(x));
     else
-        return base_internal::CountLeadingZeros32(static_cast<uint32_t>(x));
+        res = base_internal::CountLeadingZeros32(static_cast<uint32_t>(x));
+    return res;
 }
 
 // --------------------------------------------------------------------------
@@ -357,7 +361,7 @@ inline size_t H1(size_t hashval, const ctrl_t* ) {
 #endif
 
 
-inline h2_t H2(size_t hashval)       { return (h2_t)(ctrl_t)(hashval & 0x7F); }
+inline ctrl_t H2(size_t hashval)       { return (ctrl_t)(hashval & 0x7F); }
 
 inline bool IsEmpty(ctrl_t c)          { return c == kEmpty; }
 inline bool IsFull(ctrl_t c)           { return c >= static_cast<ctrl_t>(0); }
@@ -424,14 +428,10 @@ struct GroupSse2Impl
 #endif
     }
 
-#ifdef __INTEL_COMPILER
-#pragma warning push
-#pragma warning disable 68
-#endif
     // Returns a bitmask representing the positions of empty or deleted slots.
     // -----------------------------------------------------------------------
     BitMask<uint32_t, kWidth> MatchEmptyOrDeleted() const {
-        auto special = _mm_set1_epi8(static_cast<uint8_t>(kSentinel));
+        auto special = _mm_set1_epi8(static_cast<char>(kSentinel));
         return BitMask<uint32_t, kWidth>(
             static_cast<uint32_t>(_mm_movemask_epi8(_mm_cmpgt_epi8_fixed(special, ctrl))));
     }
@@ -439,13 +439,10 @@ struct GroupSse2Impl
     // Returns the number of trailing empty or deleted elements in the group.
     // ----------------------------------------------------------------------
     uint32_t CountLeadingEmptyOrDeleted() const {
-        auto special = _mm_set1_epi8(static_cast<uint8_t>(kSentinel));
+        auto special = _mm_set1_epi8(static_cast<char>(kSentinel));
         return TrailingZeros(
             static_cast<uint32_t>(_mm_movemask_epi8(_mm_cmpgt_epi8_fixed(special, ctrl)) + 1));
     }
-#ifdef __INTEL_COMPILER
-#pragma warning pop
-#endif
 
     // ----------------------------------------------------------------------
     void ConvertSpecialToEmptyAndFullToDeleted(ctrl_t* dst) const {
@@ -581,8 +578,7 @@ inline size_t CapacityToGrowth(size_t capacity)
     assert(IsValidCapacity(capacity));
     // `capacity*7/8`
     PHMAP_IF_CONSTEXPR (Group::kWidth == 8) {
-        if (capacity == 7)
-        {
+        if (capacity == 7) {
             // x-x/8 does not work when x==7.
             return 6;
         }
@@ -598,8 +594,7 @@ inline size_t GrowthToLowerboundCapacity(size_t growth)
 {
     // `growth*8/7`
     PHMAP_IF_CONSTEXPR (Group::kWidth == 8) {
-        if (growth == 7)
-        {
+        if (growth == 7) {
             // x+(x-1)/7 does not work when x==7.
             return 8;
         }
@@ -4582,7 +4577,7 @@ struct HashtableDebugAccess<Set, typename std::enable_if<has_member_type_raw_has
         auto seq = set.probe(hashval);
         while (true) {
             priv::Group g{set.ctrl_ + seq.offset()};
-            for (uint32_t i : g.Match(priv::H2(hashval))) {
+            for (uint32_t i : g.Match((h2_t)priv::H2(hashval))) {
                 if (Traits::apply(
                         typename Set::template EqualElement<typename Set::key_type>{
                             key, set.eq_ref()},
